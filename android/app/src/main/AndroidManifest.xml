@@ -1,13 +1,24 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.kalomon">
 
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION"/>
 
+    <uses-permission android:name="android.permission.health.READ_STEPS"/>
+    <uses-permission android:name="android.permission.health.READ_DISTANCE"/>
+    <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED"/>
+
+    <uses-permission android:name="androidx.health.permission.Steps.READ" />
+    <uses-permission android:name="androidx.health.permission.Distance.READ" />
+    <uses-permission android:name="androidx.health.permission.ActiveCaloriesBurned.READ" />
     <queries>
         <package android:name="com.google.android.apps.healthdata" />
+        <intent>
+            <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+        </intent>
     </queries>
 
     <application
-        android:label="project"
+        android:label="KaloMon"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 
@@ -21,9 +32,12 @@
             android:windowSoftInputMode="adjustResize">
 
             <meta-data
+                android:name="health_permissions_rationale_activity"
+                android:value="com.kalomon.MainActivity" />
+
+            <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
-                android:resource="@style/NormalTheme"
-                />
+                android:resource="@style/NormalTheme" />
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -34,16 +48,22 @@
                 <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
             </intent-filter>
 
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
-                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
-            </intent-filter>
-
             <meta-data
                 android:name="health_permissions"
                 android:resource="@array/health_permissions" />
 
         </activity>
+
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity="com.kalomon.MainActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
 
         <meta-data
             android:name="flutterEmbedding"

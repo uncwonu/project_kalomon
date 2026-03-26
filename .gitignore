@@ -43,3 +43,14 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+gitignore
+# Personal or secret files
+.env
+*.jks
+*.keystore
+key.properties
+google-services.json
+GoogleService-Info.plist
+
+# Large Flutter SDK folder (if you accidentally put it in the project)
+flutter/
