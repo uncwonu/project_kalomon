@@ -57,9 +57,11 @@ class HomeTab extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  _buildSelectButton("캐릭터 1"), const SizedBox(width: 8),
-                  _buildSelectButton("캐릭터 2"), const SizedBox(width: 8),
+                  _buildSelectButton("girl"), const SizedBox(width: 8),
+                  _buildSelectButton("boy"), const SizedBox(width: 8),
                   _buildSelectButton("character3"),
+                  _buildSelectButton("baby gator"), const SizedBox(width: 8),
+                  _buildSelectButton("baby raccoon"), const SizedBox(width: 8),
                 ],
               ),
             ],

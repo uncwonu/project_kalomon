@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:math' as math; // 🚀 숨쉬기 계산을 위한 수학 라이브러리
 
 enum TileType { wall, floor, water }
 
@@ -29,29 +30,34 @@ class ManualCharacterView extends StatefulWidget {
   State<ManualCharacterView> createState() => _ManualCharacterViewState();
 }
 
-class _ManualCharacterViewState extends State<ManualCharacterView> {
+// 🚀 애니메이션 사용을 위해 SingleTickerProviderStateMixin 추가
+class _ManualCharacterViewState extends State<ManualCharacterView> with SingleTickerProviderStateMixin {
   Timer? _moveTimer;
+  late AnimationController _idleController; // 🚀 숨쉬기용 컨트롤러
 
   double _x = 150.0;
   double _y = 300.0;
-  int _direction = 2;
-  int _step = 0;
+  int _direction = 2; // 0: 위, 1: 오른쪽, 2: 아래, 3: 왼쪽
+
+  int _walkFrame = 0;
   int _tickCount = 0;
   final double _speed = 4.0;
+  bool _isMoving = false; // 🚀 현재 이동 중인지 확인하는 플래그
 
   final int _cols = 20;
   final int _rows = 32;
   List<List<Tile>> _gridMap = [];
 
-  final double charWidth = 80.0;
-  final double charHeight = 160.0;
+  final double charWidth = 120.0;
+  final double charHeight = 120.0;
 
+  // 가구 Specs (기존과 동일)
   final Map<String, Map<String, dynamic>> gymFurnitureSpecs = {
-    '파워 랙': { 'asset': 'assets/power_rack.png', 'l': 0.02, 't': 0.025, 'w': 0.43, 'hitX': [1,2,3,4,5,6,7], 'hitY': [8,9,10,11,12,13] },
+    '파워 랙': { 'asset': 'assets/power_rack.png', 'l': -0.12, 't': -0.1, 'w': 0.7, 'hitX': [1,2,3,4,5,6,7], 'hitY': [8,9,10,11,12,13] },
     '케이블 머신': { 'asset': 'assets/cable.png', 'l': 0.55, 't': 0.06, 'w': 0.45, 'hitX': [11,12,13,14,15,16,17,18], 'hitY': [8,9,10,11,12,13] },
     '런닝머신': { 'asset': 'assets/treadmill.png', 'l': -0.07, 't': 0.65, 'w': 0.60, 'hitX': [1,2,3,4,5,6,7], 'hitY': [28,29,30] },
     '덤벨 세트': { 'asset': 'assets/dumbel.png', 'l': 0.197, 't': 0.33, 'w': 0.8, 'hitX': [11,12,13,14,15,16,17,18], 'hitY': [25,26,27,28,29,30] },
-    '동기부여 포스터': { 'asset': 'assets/poster.png', 'l': 0.45, 't': 0.03, 'w': 0.14, 'hitX': [], 'hitY': [] },
+    '동기부여 포스터': { 'asset': 'assets/poster.png', 'l': 0.43, 't': 0.03, 'w': 0.14, 'hitX': [], 'hitY': [] },
   };
 
   final Map<String, Map<String, dynamic>> poolFurnitureSpecs = {
@@ -66,10 +72,24 @@ class _ManualCharacterViewState extends State<ManualCharacterView> {
   @override
   void initState() {
     super.initState();
+    // 🚀 숨쉬기 애니메이션 설정 (1.5초 주기로 부드럽게 반복)
+    _idleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat();
+
     _generateGridMap();
     _resetPosition();
   }
 
+  @override
+  void dispose() {
+    _moveTimer?.cancel();
+    _idleController.dispose(); // 🚀 컨트롤러 해제 필수
+    super.dispose();
+  }
+
+  // ... (didUpdateWidget, _resetPosition, _generateGridMap, _canMoveTo 로직 동일) ...
   @override
   void didUpdateWidget(ManualCharacterView oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -82,7 +102,7 @@ class _ManualCharacterViewState extends State<ManualCharacterView> {
   void _resetPosition() {
     setState(() {
       _x = widget.areaWidth / 2 - (charWidth / 2);
-      _y = widget.areaHeight / 2;
+      _y = widget.areaHeight / 2 - (charHeight / 2);
       _direction = 2;
     });
   }
@@ -121,25 +141,19 @@ class _ManualCharacterViewState extends State<ManualCharacterView> {
   bool _canMoveTo(double nx, double ny) {
     double tileW = widget.areaWidth / _cols;
     double tileH = widget.areaHeight / _rows;
-
     double feetX = nx + (charWidth / 2);
-    double feetY = ny + charHeight - 20;
-
+    double feetY = ny + charHeight - 15;
     int gridX = (feetX / tileW).floor();
     int gridY = (feetY / tileH).floor();
-
     if (gridX < 0 || gridX >= _cols || gridY < 0 || gridY >= _rows) return false;
-
     Tile targetTile = _gridMap[gridY][gridX];
-    if (targetTile.type == TileType.wall) return false;
-    if (targetTile.type == TileType.water) return false;
-    if (targetTile.isOccupied) return false;
-
+    if (targetTile.type == TileType.wall || targetTile.type == TileType.water || targetTile.isOccupied) return false;
     return true;
   }
 
   void _startMoving(int dir) {
     _direction = dir;
+    _isMoving = true; // 🚀 이동 상태로 변경
     _moveTimer?.cancel();
     _moveTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
       setState(() {
@@ -155,27 +169,34 @@ class _ManualCharacterViewState extends State<ManualCharacterView> {
         if (_canMoveTo(nx, ny)) { _x = nx; _y = ny; }
 
         _tickCount++;
-        if (_tickCount >= 8) { _step = 1 - _step; _tickCount = 0; }
+        if (_tickCount >= 8) {
+          _walkFrame = (_walkFrame + 1) % 4;
+          _tickCount = 0;
+        }
       });
     });
   }
 
   void _stopMoving() {
     _moveTimer?.cancel();
-    setState(() { _step = 0; });
+    setState(() {
+      _walkFrame = 0;
+      _isMoving = false; // 🚀 정지 상태로 변경
+    });
   }
 
-  String _getCurrentSprite() {
-    if (widget.selectedCharacter != "character3") {
-      if (widget.selectedCharacter == "캐릭터 1") return 'assets/1772771310720.png';
-      if (widget.selectedCharacter == "캐릭터 2") return 'assets/1772771352804.png';
-      return 'assets/placeholder.png';
+  String _getBaseSprite() {
+    String dirStr;
+    switch (_direction) {
+      case 0: dirStr = 'back'; break;
+      case 1: dirStr = 'right'; break;
+      case 2: dirStr = 'front'; break;
+      case 3: dirStr = 'left'; break;
+      default: dirStr = 'front';
     }
-    if (_direction == 0) return _step == 0 ? 'assets/오뒤.png' : 'assets/왼뒤.png';
-    if (_direction == 1) return _step == 0 ? 'assets/오2.png' : 'assets/오3.png';
-    if (_direction == 2) return _step == 0 ? 'assets/오앞.png' : 'assets/왼앞.png';
-    if (_direction == 3) return _step == 0 ? 'assets/왼2.PNG' : 'assets/왼3.PNG';
-    return 'assets/오앞.png';
+    if (_walkFrame == 0 || _walkFrame == 2) return 'assets/$dirStr.png';
+    else if (_walkFrame == 1) return 'assets/${dirStr}_left.png';
+    else return 'assets/${dirStr}_right.png';
   }
 
   Widget _buildDirBtn(IconData icon, int dir) {
@@ -192,24 +213,20 @@ class _ManualCharacterViewState extends State<ManualCharacterView> {
   }
 
   @override
-  void dispose() { _moveTimer?.cancel(); super.dispose(); }
-
-  @override
   Widget build(BuildContext context) {
     double tileW = widget.areaWidth / _cols;
     double tileH = widget.areaHeight / _rows;
 
     return Stack(
       children: [
+        // 배경 그리드 및 가구 렌더링 (기존과 동일)
         Positioned.fill(
           child: IgnorePointer(
             child: Column(
               children: List.generate(_rows, (r) => Container(
                 height: tileH,
                 child: Row(
-                  children: List.generate(_cols, (c) {
-                    return Container(width: tileW, decoration: const BoxDecoration(color: Colors.transparent));
-                  }),
+                  children: List.generate(_cols, (c) => Container(width: tileW, decoration: const BoxDecoration(color: Colors.transparent))),
                 ),
               )),
             ),
@@ -219,33 +236,52 @@ class _ManualCharacterViewState extends State<ManualCharacterView> {
         if (widget.selectedBg == '헬스장')
           ...widget.equippedFurniture.where((name) => gymFurnitureSpecs.containsKey(name)).map((name) {
             final spec = gymFurnitureSpecs[name]!;
-            return Positioned(
-              left: widget.areaWidth * spec['l'],
-              top: widget.areaHeight * spec['t'],
-              width: widget.areaWidth * spec['w'],
-              child: Image.asset(spec['asset'], fit: BoxFit.contain),
-            );
+            return Positioned(left: widget.areaWidth * spec['l'], top: widget.areaHeight * spec['t'], width: widget.areaWidth * spec['w'], child: Image.asset(spec['asset'], fit: BoxFit.contain));
           }),
 
         if (widget.selectedBg == '수영장')
           ...widget.equippedFurniture.where((name) => poolFurnitureSpecs.containsKey(name)).map((name) {
             final spec = poolFurnitureSpecs[name]!;
-            return Positioned(
-              left: widget.areaWidth * spec['l'],
-              top: widget.areaHeight * spec['t'],
-              width: widget.areaWidth * spec['w'],
-              child: Image.asset(spec['asset'], fit: BoxFit.contain),
-            );
+            return Positioned(left: widget.areaWidth * spec['l'], top: widget.areaHeight * spec['t'], width: widget.areaWidth * spec['w'], child: Image.asset(spec['asset'], fit: BoxFit.contain));
           }),
 
+        // 🚀 [캐릭터 렌더링 + AnimatedBuilder 적용]
         Positioned(
           left: _x, top: _y,
-          child: Transform.scale(
-            scale: 0.8,
-            child: Image.asset(_getCurrentSprite(), fit: BoxFit.contain, height: charHeight, errorBuilder: (context, error, stackTrace) => const SizedBox.shrink()),
+          child: SizedBox(
+            width: charWidth,
+            height: charHeight,
+            child: AnimatedBuilder(
+              animation: _idleController,
+              builder: (context, child) {
+                // 🚀 대표님이 좋아하신 '부드러운 둥실거림' 계산
+                final double angle = _idleController.value * math.pi * 2;
+                // 🚀 이동 중일 땐 바운스를 최소화(1), 멈춰있을 땐 좀 더 부드럽게(4~5 추천) 조절 가능합니다.
+                final double yOffset = math.sin(angle) * (1.0);
+
+                return Transform.translate(
+                  offset: Offset(0, yOffset),
+                  child: child,
+                );
+              },
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Image.asset(
+                    _getBaseSprite(),
+                    width: charWidth,
+                    height: charHeight,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                  ),
+                  // 여기에 2층(옷), 3층(머리) 추가 예정
+                ],
+              ),
+            ),
           ),
         ),
 
+        // 조이스틱 버튼
         Positioned(
           bottom: 30, right: 20,
           child: Column(

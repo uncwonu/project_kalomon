@@ -1,17 +1,29 @@
 // lib/main.dart
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'firebase_options.dart';
+import 'screens/login_screen.dart';
 
-// 🔥 우리가 방금 쪼개놓은 화면 파일들과 '비서(Service)'를 불러옵니다!
 import 'screens/home_tab.dart';
 import 'screens/quest_tab.dart';
 import 'screens/kitchen_page.dart';
 import 'screens/profile_tab.dart';
 import 'screens/room_decor_tab.dart';
-import 'services/health_service.dart'; // 🚀 헬스 전담 비서 호출!
+import 'services/health_service.dart';
 
-void main() => runApp(const KaloMonApp());
+// 🚀 워치용 화면 임포트 추가!
+import 'watch_screens/watch_character_screen.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  runApp(const KaloMonApp());
+}
 
 class KaloMonApp extends StatelessWidget {
   const KaloMonApp({super.key});
@@ -28,7 +40,33 @@ class KaloMonApp extends StatelessWidget {
           secondary: Colors.amberAccent,
         ),
       ),
-      home: const MainScreen(),
+      // 🚀 [해결 완료] 로그인 체크보다 '화면 크기 체크'를 먼저 합니다!
+      home: LayoutBuilder(
+        builder: (context, constraints) {
+          // ⌚ 1. 워치 판별 (로그인 과정을 쿨하게 패스하고 바로 캐릭터 노출!)
+          if (constraints.maxWidth < 300) {
+            return const WatchCharacterScreen();
+          }
+          // 📱 2. 스마트폰 판별 (기존처럼 Firebase 로그인 체크 진행)
+          else {
+            return StreamBuilder<User?>(
+              stream: FirebaseAuth.instance.authStateChanges(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Scaffold(
+                    backgroundColor: Color(0xFF1E293B),
+                    body: Center(child: CircularProgressIndicator(color: Colors.amber)),
+                  );
+                }
+                if (snapshot.hasData) {
+                  return const MainScreen(); // 로그인 되어있으면 메인
+                }
+                return const login_screen(); // 안 되어있으면 폰에서만 로그인 화면 노출
+              },
+            );
+          }
+        },
+      ),
     );
   }
 }
@@ -54,8 +92,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   int _todaySteps = 0;
   double _todayDistanceKm = 0.0;
-  double _todayCalories = 0.0;
+  double _todayCalories = 0.0; // 화면에 보여줄 '진짜' 활동 소모 칼로리
 
+  // 🚀 성별 데이터 추가! (기본값: 남성)
+  String _gender = "남성";
   double _weight = 70.0;
   double _height = 175.0;
   int _age = 23;
@@ -71,12 +111,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   bool _q2Claimed = false;
   bool _q3Claimed = false;
 
-  // 🚀 헬스 전담 비서 객체 생성! (기존 Health 객체 대체)
   final HealthService _healthService = HealthService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
+  // 🚀 성별을 고려한 정밀 BMR 계산 및 목표 칼로리 설정
   double get _targetCalories {
-    double bmr = (10 * _weight) + (6.25 * _height) - (5 * _age) + 5;
-    return bmr * 0.2;
+    double bmr;
+    if (_gender == "남성") {
+      bmr = (10 * _weight) + (6.25 * _height) - (5 * _age) + 5;
+    } else {
+      bmr = (10 * _weight) + (6.25 * _height) - (5 * _age) - 161;
+    }
+    return bmr * 0.2; // 기초대사량의 20%를 목표 활동량으로!
   }
 
   bool get _hasClaimableQuest {
@@ -117,68 +164,110 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      debugPrint("KaloMon 복귀 감지. 건강 데이터를 자동 갱신합니다.");
-      _checkDailyReset();
-      _syncHealthData(showSnackbar: false);
+  Future<void> _loadSavedData() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    try {
+      DocumentSnapshot doc = await _firestore.collection('users').doc(user.uid).get();
+
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        setState(() {
+          _gold = data['gold'] ?? 20000;
+          _gems = data['gems'] ?? 45;
+          _level = data['level'] ?? 25;
+          _xp = (data['xp'] ?? 350.0).toDouble();
+          _stamina = (data['stamina'] ?? 40.0).toDouble();
+
+          // 🚀 클라우드에서 성별 데이터 불러오기
+          _gender = data['gender'] ?? "남성";
+          _weight = (data['weight'] ?? 70.0).toDouble();
+          _height = (data['height'] ?? 175.0).toDouble();
+          _age = data['age'] ?? 23;
+          _muscleMass = (data['muscleMass'] ?? 30.0).toDouble();
+
+          _selectedBg = data['selectedBg'] ?? '기본';
+          _ownedBgs = List<String>.from(data['ownedBgs'] ?? ['기본']);
+          _ownedFurniture = List<String>.from(data['ownedFurniture'] ?? []);
+          _equippedFurniture = List<String>.from(data['equippedFurniture'] ?? []);
+          _q1Claimed = data['q1Claimed'] ?? false;
+          _q2Claimed = data['q2Claimed'] ?? false;
+          _q3Claimed = data['q3Claimed'] ?? false;
+          _lastDate = data['lastDate'] ?? "";
+        });
+      } else {
+        _saveData();
+      }
+    } catch (e) {
+      debugPrint("클라우드 데이터 불러오기 에러: $e");
     }
   }
 
-  Future<void> _loadSavedData() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _gold = prefs.getInt('gold') ?? 20000;
-      _gems = prefs.getInt('gems') ?? 45;
-      _level = prefs.getInt('level') ?? 25;
-      _xp = prefs.getDouble('xp') ?? 350.0;
-      _stamina = prefs.getDouble('stamina') ?? 40.0;
-      _weight = prefs.getDouble('weight') ?? 70.0;
-      _height = prefs.getDouble('height') ?? 175.0;
-      _age = prefs.getInt('age') ?? 23;
-      _muscleMass = prefs.getDouble('muscleMass') ?? 30.0;
-      _selectedBg = prefs.getString('selectedBg') ?? '기본';
-      _ownedBgs = prefs.getStringList('ownedBgs') ?? ['기본'];
-      _ownedFurniture = prefs.getStringList('ownedFurniture') ?? [];
-      _equippedFurniture = prefs.getStringList('equippedFurniture') ?? [];
-      _q1Claimed = prefs.getBool('q1Claimed') ?? false;
-      _q2Claimed = prefs.getBool('q2Claimed') ?? false;
-      _q3Claimed = prefs.getBool('q3Claimed') ?? false;
-      _lastDate = prefs.getString('lastDate') ?? "";
-    });
-  }
-
   Future<void> _saveData() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('gold', _gold);
-    await prefs.setInt('gems', _gems);
-    await prefs.setInt('level', _level);
-    await prefs.setDouble('xp', _xp);
-    await prefs.setDouble('stamina', _stamina);
-    await prefs.setDouble('weight', _weight);
-    await prefs.setDouble('height', _height);
-    await prefs.setInt('age', _age);
-    await prefs.setDouble('muscleMass', _muscleMass);
-    await prefs.setString('selectedBg', _selectedBg);
-    await prefs.setStringList('ownedBgs', _ownedBgs);
-    await prefs.setStringList('ownedFurniture', _ownedFurniture);
-    await prefs.setStringList('equippedFurniture', _equippedFurniture);
-    await prefs.setBool('q1Claimed', _q1Claimed);
-    await prefs.setBool('q2Claimed', _q2Claimed);
-    await prefs.setBool('q3Claimed', _q3Claimed);
-    await prefs.setString('lastDate', _lastDate);
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    try {
+      await _firestore.collection('users').doc(user.uid).set({
+        'gold': _gold,
+        'gems': _gems,
+        'level': _level,
+        'xp': _xp,
+        'stamina': _stamina,
+        'gender': _gender, // 🚀 클라우드에 성별 저장
+        'weight': _weight,
+        'height': _height,
+        'age': _age,
+        'muscleMass': _muscleMass,
+        'selectedBg': _selectedBg,
+        'ownedBgs': _ownedBgs,
+        'ownedFurniture': _ownedFurniture,
+        'equippedFurniture': _equippedFurniture,
+        'q1Claimed': _q1Claimed,
+        'q2Claimed': _q2Claimed,
+        'q3Claimed': _q3Claimed,
+        'lastDate': _lastDate,
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint("클라우드 데이터 저장 에러: $e");
+    }
   }
 
-  // 🚀 코드가 획기적으로 줄어든 동기화 함수! 비서에게 모든 걸 맡깁니다.
+  // 🚀 대망의 헬스 데이터 동기화 및 칼로리 정밀 계산 로직!
   Future<void> _syncHealthData({bool showSnackbar = true}) async {
     final healthData = await _healthService.fetchTodayHealthData();
 
     if (healthData != null) {
       setState(() {
-        _todaySteps = healthData['steps'] ?? 0;
+        _todaySteps = healthData['steps']?.toInt() ?? 0;
         _todayDistanceKm = healthData['distanceKm'] ?? 0.0;
-        _todayCalories = healthData['calories'] ?? 0.0;
+
+        // 1. 서비스에서 삼성이 준 활동 칼로리와 총 소모 칼로리 둘 다 가져오기
+        double samsungActiveCalories = healthData['calories'] ?? 0.0;
+        double fetchedTotalCalories = healthData['totalCalories'] ?? 0.0;
+
+        // 2. 성별에 따른 하루 전체 기초대사량(BMR) 계산 (Mifflin-St Jeor 공식)
+        double bmr;
+        if (_gender == "남성") {
+          bmr = (10 * _weight) + (6.25 * _height) - (5 * _age) + 5;
+        } else {
+          bmr = (10 * _weight) + (6.25 * _height) - (5 * _age) - 161;
+        }
+
+        // 3. 자정부터 현재 시간까지 흘러간 시간에 비례한 기초대사량 계산
+        final now = DateTime.now();
+        double minutesPassed = (now.hour * 60) + now.minute.toDouble();
+        double bmrUpToNow = bmr * (minutesPassed / 1440.0); // 1440분 = 24시간
+
+        // 4. 우리가 직접 계산한 진짜 활동 칼로리!
+        double calculatedActiveCalories = fetchedTotalCalories - bmrUpToNow;
+        if (calculatedActiveCalories < 0) calculatedActiveCalories = 0.0; // 음수 방지
+
+        // 5. 철통 보안: 우리가 계산한 값과 삼성이 준 활동 칼로리 중 더 '큰 값'을 사용!
+        _todayCalories = calculatedActiveCalories > samsungActiveCalories
+            ? calculatedActiveCalories
+            : samsungActiveCalories;
       });
 
       if (showSnackbar) {
@@ -208,8 +297,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     _saveData();
   }
 
-  void _updateProfileData(double w, double h, int a, double m) {
-    setState(() { _weight = w; _height = h; _age = a; _muscleMass = m; });
+  // 🚀 ProfileTab에서 성별을 포함해 데이터를 넘겨줄 때 받는 함수
+  void _updateProfileData(String g, double w, double h, int a, double m) {
+    setState(() { _gender = g; _weight = w; _height = h; _age = a; _muscleMass = m; });
     _saveData();
   }
 
@@ -278,6 +368,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         return KitchenPage(selectedCharacter: _selectedCharacter);
       case 3:
         return ProfileTab(
+          gender: _gender, // 🚀 ProfileTab에 성별 데이터 넘겨주기
           weight: _weight, height: _height, age: _age, muscleMass: _muscleMass, targetCalories: _targetCalories,
           onProfileUpdated: _updateProfileData,
         );
