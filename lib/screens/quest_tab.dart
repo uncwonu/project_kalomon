@@ -8,8 +8,17 @@ class QuestTab extends StatefulWidget {
   final bool q1Claimed;
   final bool q2Claimed;
   final bool q3Claimed;
-  final Function(int, int, int, int) onRewardClaimed; // questId, xp, gold, gems
+
+  final int currentStreak;
+  final int longestStreak;
+  final int streakFreezeCount;
+  final int completedDailyQuests;
+  final bool canClaimDailyChest;
+  final bool dailyChestClaimed;
+
+  final Function(int, int, int, int) onRewardClaimed;
   final VoidCallback onSyncRequested;
+  final VoidCallback onDailyChestClaimed;
 
   const QuestTab({
     super.key,
@@ -20,8 +29,15 @@ class QuestTab extends StatefulWidget {
     required this.q1Claimed,
     required this.q2Claimed,
     required this.q3Claimed,
+    required this.currentStreak,
+    required this.longestStreak,
+    required this.streakFreezeCount,
+    required this.completedDailyQuests,
+    required this.canClaimDailyChest,
+    required this.dailyChestClaimed,
     required this.onRewardClaimed,
     required this.onSyncRequested,
+    required this.onDailyChestClaimed,
   });
 
   @override
@@ -37,7 +53,6 @@ class _QuestTabState extends State<QuestTab> {
       padding: const EdgeInsets.all(12.0),
       child: Column(
         children: [
-          // 🚀 상단 동기화 버튼 영역 (게임 타이틀 느낌)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -60,26 +75,24 @@ class _QuestTabState extends State<QuestTab> {
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
-              )
+              ),
             ],
           ),
+          const SizedBox(height: 12),
+          _buildRetentionPanel(),
           const SizedBox(height: 16),
-
-          // 🚀 탭 네비게이션 (Normal, Boss, Special)
           Row(
             children: [
-              _buildTopTab('Daily', true),
-              _buildTopTab('Weekly', false), // 추후 구현
-              _buildTopTab('Special', false), // 추후 구현
+              _buildTopTab('Daily', _selectedTab == 'Daily'),
+              _buildTopTab('Weekly', _selectedTab == 'Weekly'),
+              _buildTopTab('Special', _selectedTab == 'Special'),
             ],
           ),
-
-          // 🚀 메인 퀘스트 보드 (스크린샷 느낌의 밝은 회색 컨테이너)
           Expanded(
             child: Container(
               width: double.infinity,
               decoration: BoxDecoration(
-                color: const Color(0xFFF1F5F9), // 밝은 회색 바탕
+                color: const Color(0xFFF1F5F9),
                 borderRadius: const BorderRadius.only(
                   bottomLeft: Radius.circular(12),
                   bottomRight: Radius.circular(12),
@@ -93,48 +106,58 @@ class _QuestTabState extends State<QuestTab> {
                   padding: const EdgeInsets.all(12.0),
                   child: Column(
                     children: [
-                      // 좌측 상단 "Daily MISSION" 텍스트
                       Row(
                         children: [
                           Text(
-                            'Daily MISSION',
-                            style: TextStyle(color: Colors.blueGrey.shade400, fontSize: 12, fontWeight: FontWeight.bold),
+                            _selectedTab == 'Daily'
+                                ? 'Daily MISSION'
+                                : _selectedTab == 'Weekly'
+                                ? 'Weekly MISSION'
+                                : 'Special MISSION',
+                            style: TextStyle(
+                              color: Colors.blueGrey.shade400,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 12),
-
-                      // 🚀 퀘스트 카드 1: 걸음 수
-                      _buildQuestCard(
-                        questId: 1,
-                        title: '일일 3,000걸음 걷기',
-                        current: widget.todaySteps.toDouble(),
-                        max: 3000.0,
-                        rewardXp: 50, rewardGold: 10, rewardGems: 0,
-                        isClaimed: widget.q1Claimed,
-                      ),
-
-                      // 🚀 퀘스트 카드 2: 칼로리 소모
-                      _buildQuestCard(
-                        questId: 2,
-                        title: '목표 활동 칼로리 소모',
-                        current: widget.todayCalories,
-                        max: widget.targetCalories > 0 ? widget.targetCalories : 1.0, // 0 나누기 방지
-                        rewardXp: 120, rewardGold: 30, rewardGems: 1,
-                        isClaimed: widget.q2Claimed,
-                        isKcal: true,
-                      ),
-
-                      // 🚀 퀘스트 카드 3: 달리기/걷기 거리
-                      _buildQuestCard(
-                        questId: 3,
-                        title: '누적 3.0km 이동하기',
-                        current: widget.todayDistanceKm,
-                        max: 3.0,
-                        rewardXp: 150, rewardGold: 50, rewardGems: 2,
-                        isClaimed: widget.q3Claimed,
-                        isKm: true,
-                      ),
+                      if (_selectedTab == 'Daily') ...[
+                        _buildQuestCard(
+                          questId: 1,
+                          title: '일일 3,000걸음 걷기',
+                          current: widget.todaySteps.toDouble(),
+                          max: 3000.0,
+                          rewardXp: 50,
+                          rewardGold: 10,
+                          rewardGems: 0,
+                          isClaimed: widget.q1Claimed,
+                        ),
+                        _buildQuestCard(
+                          questId: 2,
+                          title: '목표 활동 칼로리 소모',
+                          current: widget.todayCalories,
+                          max: widget.targetCalories > 0 ? widget.targetCalories : 1.0,
+                          rewardXp: 120,
+                          rewardGold: 30,
+                          rewardGems: 1,
+                          isClaimed: widget.q2Claimed,
+                          isKcal: true,
+                        ),
+                        _buildQuestCard(
+                          questId: 3,
+                          title: '누적 3.0km 이동하기',
+                          current: widget.todayDistanceKm,
+                          max: 3.0,
+                          rewardXp: 150,
+                          rewardGold: 50,
+                          rewardGems: 2,
+                          isClaimed: widget.q3Claimed,
+                          isKm: true,
+                        ),
+                      ] else
+                        _buildComingSoonPanel(),
                     ],
                   ),
                 ),
@@ -146,12 +169,105 @@ class _QuestTabState extends State<QuestTab> {
     );
   }
 
-  // 🎯 상단 탭 버튼 빌더
+  Widget _buildRetentionPanel() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.amber.withOpacity(0.35)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.18),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: Colors.deepOrangeAccent.withOpacity(0.12),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.deepOrangeAccent.withOpacity(0.35)),
+            ),
+            child: const Icon(Icons.local_fire_department, color: Colors.deepOrangeAccent, size: 28),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Kalo Streak ${widget.currentStreak}일',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Daily Quest ${widget.completedDailyQuests}/3 완료',
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                const SizedBox(height: 6),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LinearProgressIndicator(
+                    value: (widget.completedDailyQuests / 3).clamp(0.0, 1.0),
+                    minHeight: 6,
+                    backgroundColor: Colors.white12,
+                    color: Colors.amber,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.shield, size: 14, color: Colors.cyanAccent),
+                  const SizedBox(width: 3),
+                  Text(
+                    '${widget.streakFreezeCount}',
+                    style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              ElevatedButton(
+                onPressed: widget.canClaimDailyChest ? widget.onDailyChestClaimed : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.amber,
+                  disabledBackgroundColor: Colors.white12,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  minimumSize: const Size(72, 32),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                child: Text(
+                  widget.dailyChestClaimed ? '수령완료' : 'Chest',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: widget.dailyChestClaimed ? Colors.white54 : Colors.black,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTopTab(String text, bool isSelected) {
     return Expanded(
       child: GestureDetector(
         onTap: () {
-          // 지금은 UI만 보여주고 기능은 Normal 고정
+          setState(() => _selectedTab = text);
         },
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10),
@@ -175,7 +291,37 @@ class _QuestTabState extends State<QuestTab> {
     );
   }
 
-  // 🎯 퀘스트 카드 빌더
+  Widget _buildComingSoonPanel() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.blueGrey.shade100),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.lock_clock, color: Colors.blueGrey.shade300, size: 40),
+          const SizedBox(height: 10),
+          Text(
+            '곧 열릴 예정입니다',
+            style: TextStyle(
+              color: Colors.blueGrey.shade700,
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Daily Quest를 먼저 완료해보세요.',
+            style: TextStyle(color: Colors.blueGrey.shade400, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildQuestCard({
     required int questId,
     required String title,
@@ -191,7 +337,6 @@ class _QuestTabState extends State<QuestTab> {
     bool isReadyToClaim = current >= max && !isClaimed;
     double progressRatio = (current / max).clamp(0.0, 1.0);
 
-    // 카드 테두리 색상 (완료 가능 시 황금색)
     Color borderColor = isReadyToClaim ? Colors.amber : Colors.blueGrey.shade300;
     Color bgColor = isClaimed ? Colors.grey.shade300 : Colors.white;
 
@@ -202,7 +347,7 @@ class _QuestTabState extends State<QuestTab> {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: borderColor, width: isReadyToClaim ? 2.0 : 1.5),
         boxShadow: [
-          if (isReadyToClaim) BoxShadow(color: Colors.amber.withOpacity(0.3), blurRadius: 6, spreadRadius: 1)
+          if (isReadyToClaim) BoxShadow(color: Colors.amber.withOpacity(0.3), blurRadius: 6, spreadRadius: 1),
         ],
       ),
       child: Padding(
@@ -210,7 +355,6 @@ class _QuestTabState extends State<QuestTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // [타이틀 + 보상 뱃지] 영역
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -225,21 +369,18 @@ class _QuestTabState extends State<QuestTab> {
                     ),
                   ),
                 ),
-                // 보상 알약(Pill) 뱃지들
                 Row(
                   children: [
                     if (rewardXp > 0) _buildRewardPill('EXP', rewardXp.toString(), Colors.blueGrey),
                     const SizedBox(width: 4),
-                    if (rewardGold > 0) _buildRewardPill('💰', rewardGold.toString(), Colors.orange),
+                    if (rewardGold > 0) _buildRewardPill('G', rewardGold.toString(), Colors.orange),
                     const SizedBox(width: 4),
-                    if (rewardGems > 0) _buildRewardPill('💎', rewardGems.toString(), Colors.cyan),
+                    if (rewardGems > 0) _buildRewardPill('Gem', rewardGems.toString(), Colors.cyan),
                   ],
                 ),
               ],
             ),
             const SizedBox(height: 8),
-
-            // [현재/목표 수치] 텍스트
             Text(
               '${isKm ? current.toStringAsFixed(2) : isKcal ? current.toStringAsFixed(0) : current.toInt()} / ${isKm ? max.toStringAsFixed(1) : max.toInt()}',
               style: TextStyle(
@@ -249,15 +390,12 @@ class _QuestTabState extends State<QuestTab> {
               ),
             ),
             const SizedBox(height: 4),
-
-            // [커스텀 프로그레스 바 + 수령 버튼]
             SizedBox(
               height: 24,
               child: Stack(
                 clipBehavior: Clip.none,
                 alignment: Alignment.centerLeft,
                 children: [
-                  // 프로그레스 바 트랙 (배경)
                   Container(
                     height: 12,
                     width: double.infinity,
@@ -267,25 +405,22 @@ class _QuestTabState extends State<QuestTab> {
                       border: Border.all(color: Colors.blueGrey.shade200, width: 1),
                     ),
                   ),
-                  // 프로그레스 바 채워짐 (형광 하늘색)
                   LayoutBuilder(
                     builder: (context, constraints) {
                       return Container(
                         height: 12,
                         width: constraints.maxWidth * progressRatio,
                         decoration: BoxDecoration(
-                          color: isClaimed ? Colors.grey.shade400 : const Color(0xFF00E5FF), // 완료되면 회색
+                          color: isClaimed ? Colors.grey.shade400 : const Color(0xFF00E5FF),
                           borderRadius: BorderRadius.circular(6),
                           boxShadow: [
                             if (!isClaimed && progressRatio > 0)
-                              BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.5), blurRadius: 4)
+                              BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.5), blurRadius: 4),
                           ],
                         ),
                       );
                     },
                   ),
-
-                  // 완료/수령 버튼 (스크린샷 우측의 동전/인장 느낌)
                   if (isReadyToClaim)
                     Positioned(
                       right: -5,
@@ -303,15 +438,16 @@ class _QuestTabState extends State<QuestTab> {
                         ),
                       ),
                     ),
-
-                  // 이미 수령 완료된 상태 표시
                   if (isClaimed)
                     Positioned(
                       right: 0,
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(4)),
-                        child: const Text('CLEAR', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                        child: const Text(
+                          'CLEAR',
+                          style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
                       ),
                     ),
                 ],
@@ -323,7 +459,6 @@ class _QuestTabState extends State<QuestTab> {
     );
   }
 
-  // 🎯 우측 상단 보상 표시용 작은 뱃지
   Widget _buildRewardPill(String label, String value, MaterialColor color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

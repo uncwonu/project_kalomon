@@ -43,14 +43,15 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
-gitignore
-# Personal or secret files
+
+# Personal or secret files (보안 파일 숨김 처리)
 .env
 *.jks
 *.keystore
 key.properties
 google-services.json
 GoogleService-Info.plist
+lib/firebase_options.dart
 
 # Large Flutter SDK folder (if you accidentally put it in the project)
 flutter/

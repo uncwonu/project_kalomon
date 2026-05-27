@@ -14,7 +14,6 @@ import 'screens/profile_tab.dart';
 import 'screens/room_decor_tab.dart';
 import 'services/health_service.dart';
 
-// 🚀 워치용 화면 임포트 추가!
 import 'watch_screens/watch_character_screen.dart';
 
 Future<void> main() async {
@@ -40,15 +39,11 @@ class KaloMonApp extends StatelessWidget {
           secondary: Colors.amberAccent,
         ),
       ),
-      // 🚀 [해결 완료] 로그인 체크보다 '화면 크기 체크'를 먼저 합니다!
       home: LayoutBuilder(
         builder: (context, constraints) {
-          // ⌚ 1. 워치 판별 (로그인 과정을 쿨하게 패스하고 바로 캐릭터 노출!)
           if (constraints.maxWidth < 300) {
             return const WatchCharacterScreen();
-          }
-          // 📱 2. 스마트폰 판별 (기존처럼 Firebase 로그인 체크 진행)
-          else {
+          } else {
             return StreamBuilder<User?>(
               stream: FirebaseAuth.instance.authStateChanges(),
               builder: (context, snapshot) {
@@ -59,9 +54,9 @@ class KaloMonApp extends StatelessWidget {
                   );
                 }
                 if (snapshot.hasData) {
-                  return const MainScreen(); // 로그인 되어있으면 메인
+                  return const MainScreen();
                 }
-                return const login_screen(); // 안 되어있으면 폰에서만 로그인 화면 노출
+                return const login_screen();
               },
             );
           }
@@ -92,9 +87,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   int _todaySteps = 0;
   double _todayDistanceKm = 0.0;
-  double _todayCalories = 0.0; // 화면에 보여줄 '진짜' 활동 소모 칼로리
+  double _todayCalories = 0.0;
 
-  // 🚀 성별 데이터 추가! (기본값: 남성)
   String _gender = "남성";
   double _weight = 70.0;
   double _height = 175.0;
@@ -111,11 +105,35 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   bool _q2Claimed = false;
   bool _q3Claimed = false;
 
+  int _currentStreak = 0;
+  int _longestStreak = 0;
+  int _streakFreezeCount = 1;
+  String _lastActiveDate = "";
+  bool _dailyChestClaimed = false;
+
   final HealthService _healthService = HealthService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // 🚀 성별을 고려한 정밀 BMR 계산 및 목표 칼로리 설정
+  String _dateKey(DateTime date) {
+    return "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+  }
+
+  int get _completedDailyQuests {
+    return [_q1Claimed, _q2Claimed, _q3Claimed].where((v) => v).length;
+  }
+
+  bool get _canClaimDailyChest {
+    return _completedDailyQuests >= 3 && !_dailyChestClaimed;
+  }
+
+  bool get _todayCountsForStreak {
+    return _completedDailyQuests > 0 ||
+        _todaySteps >= 3000 ||
+        _todayCalories >= (_targetCalories * 0.5) ||
+        _todayDistanceKm >= 1.0;
+  }
+
   double get _targetCalories {
     double bmr;
     if (_gender == "남성") {
@@ -123,14 +141,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     } else {
       bmr = (10 * _weight) + (6.25 * _height) - (5 * _age) - 161;
     }
-    return bmr * 0.2; // 기초대사량의 20%를 목표 활동량으로!
+    return bmr * 0.2;
   }
 
   bool get _hasClaimableQuest {
     bool q1Ready = (_todaySteps >= 3000) && !_q1Claimed;
     bool q2Ready = (_todayCalories >= _targetCalories) && !_q2Claimed;
     bool q3Ready = (_todayDistanceKm >= 3.0) && !_q3Claimed;
-    return q1Ready || q2Ready || q3Ready;
+    return q1Ready || q2Ready || q3Ready || _canClaimDailyChest;
   }
 
   @override
@@ -150,14 +168,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   void _checkDailyReset() {
-    final now = DateTime.now();
-    String todayStr = "${now.year}-${now.month}-${now.day}";
+    final todayStr = _dateKey(DateTime.now());
 
     if (_lastDate != todayStr) {
       setState(() {
         _q1Claimed = false;
         _q2Claimed = false;
         _q3Claimed = false;
+        _dailyChestClaimed = false;
         _lastDate = todayStr;
       });
       _saveData();
@@ -180,7 +198,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           _xp = (data['xp'] ?? 350.0).toDouble();
           _stamina = (data['stamina'] ?? 40.0).toDouble();
 
-          // 🚀 클라우드에서 성별 데이터 불러오기
           _gender = data['gender'] ?? "남성";
           _weight = (data['weight'] ?? 70.0).toDouble();
           _height = (data['height'] ?? 175.0).toDouble();
@@ -191,10 +208,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           _ownedBgs = List<String>.from(data['ownedBgs'] ?? ['기본']);
           _ownedFurniture = List<String>.from(data['ownedFurniture'] ?? []);
           _equippedFurniture = List<String>.from(data['equippedFurniture'] ?? []);
+
           _q1Claimed = data['q1Claimed'] ?? false;
           _q2Claimed = data['q2Claimed'] ?? false;
           _q3Claimed = data['q3Claimed'] ?? false;
           _lastDate = data['lastDate'] ?? "";
+
+          _currentStreak = data['currentStreak'] ?? 0;
+          _longestStreak = data['longestStreak'] ?? 0;
+          _streakFreezeCount = data['streakFreezeCount'] ?? 1;
+          _lastActiveDate = data['lastActiveDate'] ?? "";
+          _dailyChestClaimed = data['dailyChestClaimed'] ?? false;
         });
       } else {
         _saveData();
@@ -215,7 +239,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         'level': _level,
         'xp': _xp,
         'stamina': _stamina,
-        'gender': _gender, // 🚀 클라우드에 성별 저장
+        'gender': _gender,
         'weight': _weight,
         'height': _height,
         'age': _age,
@@ -228,13 +252,52 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         'q2Claimed': _q2Claimed,
         'q3Claimed': _q3Claimed,
         'lastDate': _lastDate,
+        'currentStreak': _currentStreak,
+        'longestStreak': _longestStreak,
+        'streakFreezeCount': _streakFreezeCount,
+        'lastActiveDate': _lastActiveDate,
+        'dailyChestClaimed': _dailyChestClaimed,
       }, SetOptions(merge: true));
     } catch (e) {
       debugPrint("클라우드 데이터 저장 에러: $e");
     }
   }
 
-  // 🚀 대망의 헬스 데이터 동기화 및 칼로리 정밀 계산 로직!
+  void _updateStreakIfNeeded() {
+    if (!_todayCountsForStreak) return;
+
+    final today = DateTime.now();
+    final todayStr = _dateKey(today);
+    if (_lastActiveDate == todayStr) return;
+
+    int nextStreak = 1;
+
+    if (_lastActiveDate.isNotEmpty) {
+      try {
+        final parts = _lastActiveDate.split('-');
+        final last = DateTime(
+          int.parse(parts[0]),
+          int.parse(parts[1]),
+          int.parse(parts[2]),
+        );
+        final todayOnly = DateTime(today.year, today.month, today.day);
+        final diff = todayOnly.difference(last).inDays;
+
+        if (diff == 1) {
+          nextStreak = _currentStreak + 1;
+        }
+      } catch (_) {
+        nextStreak = 1;
+      }
+    }
+
+    _currentStreak = nextStreak;
+    if (_currentStreak > _longestStreak) {
+      _longestStreak = _currentStreak;
+    }
+    _lastActiveDate = todayStr;
+  }
+
   Future<void> _syncHealthData({bool showSnackbar = true}) async {
     final healthData = await _healthService.fetchTodayHealthData();
 
@@ -243,11 +306,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _todaySteps = healthData['steps']?.toInt() ?? 0;
         _todayDistanceKm = healthData['distanceKm'] ?? 0.0;
 
-        // 1. 서비스에서 삼성이 준 활동 칼로리와 총 소모 칼로리 둘 다 가져오기
         double samsungActiveCalories = healthData['calories'] ?? 0.0;
         double fetchedTotalCalories = healthData['totalCalories'] ?? 0.0;
 
-        // 2. 성별에 따른 하루 전체 기초대사량(BMR) 계산 (Mifflin-St Jeor 공식)
         double bmr;
         if (_gender == "남성") {
           bmr = (10 * _weight) + (6.25 * _height) - (5 * _age) + 5;
@@ -255,27 +316,32 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           bmr = (10 * _weight) + (6.25 * _height) - (5 * _age) - 161;
         }
 
-        // 3. 자정부터 현재 시간까지 흘러간 시간에 비례한 기초대사량 계산
         final now = DateTime.now();
         double minutesPassed = (now.hour * 60) + now.minute.toDouble();
-        double bmrUpToNow = bmr * (minutesPassed / 1440.0); // 1440분 = 24시간
+        double bmrUpToNow = bmr * (minutesPassed / 1440.0);
 
-        // 4. 우리가 직접 계산한 진짜 활동 칼로리!
         double calculatedActiveCalories = fetchedTotalCalories - bmrUpToNow;
-        if (calculatedActiveCalories < 0) calculatedActiveCalories = 0.0; // 음수 방지
+        if (calculatedActiveCalories < 0) calculatedActiveCalories = 0.0;
 
-        // 5. 철통 보안: 우리가 계산한 값과 삼성이 준 활동 칼로리 중 더 '큰 값'을 사용!
         _todayCalories = calculatedActiveCalories > samsungActiveCalories
             ? calculatedActiveCalories
             : samsungActiveCalories;
+
+        _updateStreakIfNeeded();
       });
 
+      await _saveData();
+
       if (showSnackbar) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('건강 데이터가 성공적으로 동기화되었습니다!')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('건강 데이터가 성공적으로 동기화되었습니다!')),
+        );
       }
     } else {
       if (showSnackbar) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('동기화 실패. 헬스 커넥트를 확인해주세요.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('동기화 실패. 헬스 커넥트를 확인해주세요.')),
+        );
       }
     }
   }
@@ -285,21 +351,56 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       if (questId == 1) _q1Claimed = true;
       if (questId == 2) _q2Claimed = true;
       if (questId == 3) _q3Claimed = true;
+
       _xp += rewardXp;
       _gold += rewardGold;
       _gems += rewardGems;
+
       if (_xp >= _maxXp) {
         _level += 1;
         _xp -= _maxXp;
         _stamina = _maxStamina;
       }
+
+      _updateStreakIfNeeded();
     });
+
     _saveData();
   }
 
-  // 🚀 ProfileTab에서 성별을 포함해 데이터를 넘겨줄 때 받는 함수
+  void _claimDailyChest() {
+    if (!_canClaimDailyChest) return;
+
+    setState(() {
+      _dailyChestClaimed = true;
+      _gold += 100;
+      _gems += 3;
+      _xp += 80;
+
+      if (_xp >= _maxXp) {
+        _level += 1;
+        _xp -= _maxXp;
+        _stamina = _maxStamina;
+      }
+
+      _updateStreakIfNeeded();
+    });
+
+    _saveData();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Daily Chest 보상을 받았습니다!')),
+    );
+  }
+
   void _updateProfileData(String g, double w, double h, int a, double m) {
-    setState(() { _gender = g; _weight = w; _height = h; _age = a; _muscleMass = m; });
+    setState(() {
+      _gender = g;
+      _weight = w;
+      _height = h;
+      _age = a;
+      _muscleMass = m;
+    });
     _saveData();
   }
 
@@ -310,7 +411,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$name 배경이 적용되었습니다.')));
     } else {
       if (_gold >= price) {
-        setState(() { _gold -= price; _ownedBgs.add(name); _selectedBg = name; });
+        setState(() {
+          _gold -= price;
+          _ownedBgs.add(name);
+          _selectedBg = name;
+        });
         _saveData();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$name 배경을 구매하고 적용했습니다!')));
       } else {
@@ -348,10 +453,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       case 0:
         return HomeTab(
           selectedCharacter: _selectedCharacter,
-          gold: _gold, gems: _gems, level: _level, xp: _xp, maxXp: _maxXp,
-          stamina: _stamina, maxStamina: _maxStamina,
+          gold: _gold,
+          gems: _gems,
+          level: _level,
+          xp: _xp,
+          maxXp: _maxXp,
+          stamina: _stamina,
+          maxStamina: _maxStamina,
           selectedBg: _selectedBg,
           equippedFurniture: _equippedFurniture,
+          currentStreak: _currentStreak,
+          longestStreak: _longestStreak,
+          streakFreezeCount: _streakFreezeCount,
           onCharacterChanged: (newChar) => setState(() => _selectedCharacter = newChar),
         );
       case 1:
@@ -360,21 +473,38 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           todayDistanceKm: _todayDistanceKm,
           todayCalories: _todayCalories,
           targetCalories: _targetCalories,
-          q1Claimed: _q1Claimed, q2Claimed: _q2Claimed, q3Claimed: _q3Claimed,
+          q1Claimed: _q1Claimed,
+          q2Claimed: _q2Claimed,
+          q3Claimed: _q3Claimed,
+          currentStreak: _currentStreak,
+          longestStreak: _longestStreak,
+          streakFreezeCount: _streakFreezeCount,
+          completedDailyQuests: _completedDailyQuests,
+          canClaimDailyChest: _canClaimDailyChest,
+          dailyChestClaimed: _dailyChestClaimed,
           onRewardClaimed: _claimReward,
           onSyncRequested: () => _syncHealthData(showSnackbar: true),
+          onDailyChestClaimed: _claimDailyChest,
         );
       case 2:
         return KitchenPage(selectedCharacter: _selectedCharacter);
       case 3:
         return ProfileTab(
-          gender: _gender, // 🚀 ProfileTab에 성별 데이터 넘겨주기
-          weight: _weight, height: _height, age: _age, muscleMass: _muscleMass, targetCalories: _targetCalories,
+          gender: _gender,
+          weight: _weight,
+          height: _height,
+          age: _age,
+          muscleMass: _muscleMass,
+          targetCalories: _targetCalories,
           onProfileUpdated: _updateProfileData,
         );
       case 4:
         return RoomDecorTab(
-          gold: _gold, gems: _gems, ownedBgs: _ownedBgs, selectedBg: _selectedBg, onBuyBg: _buyAndApplyBg,
+          gold: _gold,
+          gems: _gems,
+          ownedBgs: _ownedBgs,
+          selectedBg: _selectedBg,
+          onBuyBg: _buyAndApplyBg,
           ownedFurniture: _ownedFurniture,
           equippedFurniture: _equippedFurniture,
           onToggleFurniture: _toggleFurniture,
